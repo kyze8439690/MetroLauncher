@@ -5,18 +5,25 @@ import android.content.res.TypedArray;
 import android.support.annotation.IntDef;
 import android.support.annotation.Nullable;
 import android.support.v4.view.MotionEventCompat;
+import android.support.v4.view.VelocityTrackerCompat;
+import android.support.v4.widget.ScrollerCompat;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
+import android.widget.OverScroller;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.List;
+
+import me.yugy.app.common.compat.ViewCompat;
+import me.yugy.app.common.utils.ViewGroupUtils;
 
 public class MetroView extends ViewGroup {
 
@@ -61,6 +68,12 @@ public class MetroView extends ViewGroup {
     boolean mCachingStarted;
     private Runnable mClearScrollingCache;
 
+    private VelocityTracker mVelocityTracker;
+    private int mMinimumVelocity;
+    private int mMaximumVelocity;
+    private float mVelocityScale = 1.0f;
+    private FlingRunnable mFlingRunnable;
+
     public MetroView(Context context) {
         this(context, null);
     }
@@ -73,7 +86,10 @@ public class MetroView extends ViewGroup {
         super(context, attrs, defStyleAttr);
 
         mInflater = LayoutInflater.from(context);
-        mTouchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+        ViewConfiguration configuration = ViewConfiguration.get(getContext());
+        mTouchSlop = configuration.getScaledTouchSlop();
+        mMinimumVelocity = configuration.getScaledMinimumFlingVelocity();
+        mMaximumVelocity = configuration.getScaledMaximumFlingVelocity();
 
         TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.MetroView, defStyleAttr, 0);
         mDividerSize = a.getDimensionPixelSize(R.styleable.MetroView_mv_dividerSize, -1);
@@ -96,6 +112,8 @@ public class MetroView extends ViewGroup {
                 mActivePointerId = MotionEventCompat.getPointerId(event, 0);
                 mMotionX = x;
                 mMotionY = y;
+                initOrResetVelocityTracker();
+                mVelocityTracker.addMovement(event);
                 break;
             }
             case MotionEvent.ACTION_MOVE: {
@@ -106,6 +124,8 @@ public class MetroView extends ViewGroup {
                         mActivePointerId = MotionEventCompat.getPointerId(event, pointerIndex);
                     }
                     final int y = (int) MotionEventCompat.getY(event, pointerIndex);
+                    initVelocityTrackerIfNotExists();
+                    mVelocityTracker.addMovement(event);
                     if (startScrollIfNeeded(y, event)) {
                         return true;
                     }
@@ -115,6 +135,7 @@ public class MetroView extends ViewGroup {
             case MotionEvent.ACTION_CANCEL:
             case MotionEvent.ACTION_UP: {
                 mActivePointerId = INVALID_POINTER;
+                recycleVelocityTracker();
                 break;
             }
             case MotionEvent.ACTION_POINTER_UP: {
@@ -132,6 +153,7 @@ public class MetroView extends ViewGroup {
             // events, it just doesn't respond to them.
             return isClickable() || isLongClickable();
         }
+        initVelocityTrackerIfNotExists();
         switch (MotionEventCompat.getActionMasked(event)) {
             case MotionEvent.ACTION_DOWN: {
                 mActivePointerId = MotionEventCompat.getPointerId(event, 0);
@@ -154,6 +176,22 @@ public class MetroView extends ViewGroup {
                 break;
             }
             case MotionEvent.ACTION_UP: {
+                final VelocityTracker velocityTracker = mVelocityTracker;
+                velocityTracker.computeCurrentVelocity(1000, mMaximumVelocity);
+                final float yVelocity =
+                        VelocityTrackerCompat.getYVelocity(velocityTracker, mActivePointerId);
+                final int initialVelocity = (int) (yVelocity * mVelocityScale);
+                boolean flingVelocity = Math.abs(initialVelocity) > mMinimumVelocity;
+                if (flingVelocity) {
+                    if (mFlingRunnable == null) {
+                        mFlingRunnable = new FlingRunnable();
+                    }
+                    mFlingRunnable.start(-initialVelocity);
+                } else {
+                    if (mFlingRunnable != null) {
+                        mFlingRunnable.endFling();
+                    }
+                }
                 mActivePointerId = INVALID_POINTER;
                 break;
             }
@@ -175,6 +213,9 @@ public class MetroView extends ViewGroup {
                 mMotionY = y;
                 break;
             }
+        }
+        if (mVelocityTracker != null) {
+            mVelocityTracker.addMovement(event);
         }
         return true;
     }
@@ -492,7 +533,31 @@ public class MetroView extends ViewGroup {
     @Override
     public void requestDisallowInterceptTouchEvent(boolean disallowIntercept) {
         mDisallowIntercept = disallowIntercept;
+        if (disallowIntercept) {
+            recycleVelocityTracker();
+        }
         super.requestDisallowInterceptTouchEvent(disallowIntercept);
+    }
+
+    private void initOrResetVelocityTracker() {
+        if (mVelocityTracker == null) {
+            mVelocityTracker = VelocityTracker.obtain();
+        } else {
+            mVelocityTracker.clear();
+        }
+    }
+
+    private void initVelocityTrackerIfNotExists() {
+        if (mVelocityTracker == null) {
+            mVelocityTracker = VelocityTracker.obtain();
+        }
+    }
+
+    private void recycleVelocityTracker() {
+        if (mVelocityTracker != null) {
+            mVelocityTracker.recycle();
+            mVelocityTracker = null;
+        }
     }
 
     private static void log(String msg) {
@@ -500,7 +565,7 @@ public class MetroView extends ViewGroup {
     }
 
     private void createScrollingCache() {
-        if (mScrollingCacheEnabled && !mCachingStarted && !isHardwareAccelerated()) {
+        if (mScrollingCacheEnabled && !mCachingStarted && !ViewCompat.isHardwareAccelerated(this)) {
             setChildrenDrawnWithCacheEnabled(true);
             setChildrenDrawingCacheEnabled(true);
             mCachingStarted = true;
@@ -515,8 +580,7 @@ public class MetroView extends ViewGroup {
     }
 
     private void clearScrollingCache() {
-        log("clearScrollingCache");
-        if (!isHardwareAccelerated()) {
+        if (!ViewCompat.isHardwareAccelerated(this)) {
             if (mClearScrollingCache == null) {
                 mClearScrollingCache = new Runnable() {
                     @Override
@@ -541,8 +605,70 @@ public class MetroView extends ViewGroup {
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
+
+        if (mFlingRunnable != null) {
+            removeCallbacks(mFlingRunnable);
+        }
+
         if (mClearScrollingCache != null) {
             removeCallbacks(mClearScrollingCache);
+        }
+    }
+
+    private class FlingRunnable implements Runnable {
+
+        private static final int FLYWHEEL_TIMEOUT = 40;
+
+        private ScrollerCompat mScroller;
+        private int mLastFlingY;
+
+        public FlingRunnable() {
+            mScroller = ScrollerCompat.create(getContext());
+        }
+
+        void start(int initialVelocity) {
+            int initialY = initialVelocity < 0 ? Integer.MAX_VALUE : 0;
+            mLastFlingY = initialY;
+            mScroller.fling(0, initialY, 0, initialVelocity,
+                    0, Integer.MAX_VALUE, 0, Integer.MAX_VALUE);
+            ViewCompat.postOnAnimation(MetroView.this, this);
+        }
+
+        void endFling() {
+            removeCallbacks(this);
+
+            clearScrollingCache();
+            mScroller.abortAnimation();
+        }
+
+        @Override
+        public void run() {
+            if ((mAdapter != null && mAdapter.getCount() == 0) || getChildCount() == 0) {
+                endFling();
+                return;
+            }
+
+            final ScrollerCompat scroller = mScroller;
+            boolean more = scroller.computeScrollOffset();
+            final int y = scroller.getCurrY();
+
+            int delta = mLastFlingY - y;
+
+            if (delta > 0) {
+                delta = Math.min(getHeight() - getPaddingBottom() - getPaddingTop() - 1, delta);
+            } else {
+                delta = Math.max(-getHeight() - getPaddingBottom() - getPaddingTop() - 1, delta);
+            }
+
+            final boolean atEdge = trackMotionScroll(delta);
+            final boolean atEnd = atEdge && (delta != 0);
+
+            if (more && !atEnd) {
+                mLastFlingY = y;
+                ViewCompat.postOnAnimation(MetroView.this, this);
+            } else {
+                endFling();
+            }
         }
     }
 }
