@@ -150,9 +150,7 @@ public class MetroView extends ViewGroup {
 
                 final int x = (int) MotionEventCompat.getX(event, pointerIndex);
                 final int y = (int) MotionEventCompat.getY(event, pointerIndex);
-                if (startScrollIfNeeded(y, event)) {
-
-                }
+                scrollIfNeeded(y, event);
                 break;
             }
             case MotionEvent.ACTION_UP: {
@@ -197,24 +195,25 @@ public class MetroView extends ViewGroup {
 
     private void scrollIfNeeded(int y, MotionEvent event) {
         int deltaY = y - mMotionY;
-        if (!mDisallowIntercept && Math.abs(deltaY) > mTouchSlop) {
+        if (!mDisallowIntercept) {
             if (getParent() != null) {
                 getParent().requestDisallowInterceptTouchEvent(true);
             }
-            boolean atEdge = false;
-            if (deltaY != 0) {
-                atEdge = trackMotionScroll(deltaY);
-            }
-
-            if (!atEdge) {
-                mFirstRowTop += deltaY;
-                ViewGroupUtils.offsetChildrenTopAndBottom(this, deltaY);
-            }
-            mMotionY = y;
         }
+        boolean atEdge = false;
+        if (deltaY != 0) {
+            atEdge = trackMotionScroll(deltaY);
+        }
+
+        if (!atEdge) {
+
+        }
+        mMotionY = y;
     }
 
     private boolean trackMotionScroll(int deltaY) {
+        mFirstRowTop += deltaY;
+        ViewGroupUtils.offsetChildrenTopAndBottom(this, deltaY);
         return false;
     }
 
