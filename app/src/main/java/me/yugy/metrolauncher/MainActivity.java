@@ -7,6 +7,9 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+import android.widget.Toast;
+
+import me.yugy.app.common.utils.DebugUtils;
 
 public class MainActivity extends Activity {
 
@@ -16,6 +19,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        DebugUtils.setLogEnable(BuildConfig.DEBUG);
         mMetroView = (MetroView) findViewById(R.id.metro_view);
         mMetroView.setAdapter(new MetroAdapter() {
             @Override
@@ -29,17 +33,24 @@ public class MainActivity extends Activity {
             }
 
             @Override
-            public View getView(LayoutInflater inflater, int position, @Nullable View convertView, ViewGroup parent) {
-                View item = convertView;
+            public View getView(LayoutInflater inflater, final int position, @Nullable View convertView, ViewGroup parent) {
+                DebugUtils.log(position);
+                View view = convertView;
                 Holder holder;
-                if (item == null) {
-                    item = inflater.inflate(R.layout.item_metro, parent, false);
-                    holder = new Holder(item);
+                if (view == null) {
+                    view = inflater.inflate(R.layout.item_metro, parent, false);
+                    holder = new Holder(view);
                 } else {
-                    holder = (Holder) item.getTag();
+                    holder = (Holder) view.getTag();
                 }
                 holder.text.setText(String.valueOf(position));
-                return item;
+                view.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        Toast.makeText(v.getContext(), String.valueOf(position), Toast.LENGTH_SHORT).show();
+                    }
+                });
+                return view;
             }
 
             @Override

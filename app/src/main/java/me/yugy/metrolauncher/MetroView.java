@@ -6,6 +6,7 @@ import android.support.annotation.IntDef;
 import android.support.annotation.Nullable;
 import android.support.v4.view.MotionEventCompat;
 import android.support.v4.view.VelocityTrackerCompat;
+import android.support.v4.view.accessibility.AccessibilityEventCompat;
 import android.support.v4.widget.ScrollerCompat;
 import android.util.AttributeSet;
 import android.util.Log;
@@ -19,6 +20,7 @@ import android.view.ViewGroup;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 
 import me.yugy.app.common.compat.ViewCompat;
@@ -63,15 +65,13 @@ public class MetroView extends ViewGroup {
     private boolean mDisallowIntercept = false;
     private int mTouchSlop;
 
-    boolean mScrollingCacheEnabled;
-    boolean mCachingStarted;
-    private Runnable mClearScrollingCache;
-
     private VelocityTracker mVelocityTracker;
     private int mMinimumVelocity;
     private int mMaximumVelocity;
     private float mVelocityScale = 1.0f;
     private FlingRunnable mFlingRunnable;
+
+    private RecycleBin mRecycleBin;
 
     public MetroView(Context context) {
         this(context, null);
@@ -98,10 +98,9 @@ public class MetroView extends ViewGroup {
             mDividerSize = context.getResources().getDimensionPixelSize(R.dimen.default_divider_size);
         }
 
-        setAlwaysDrawnWithCacheEnabled(false);
-        setScrollingCacheEnabled(true);
         setClipChildren(false);
         setClipToPadding(false);
+        mRecycleBin = new RecycleBin();
     }
 
     @Override
@@ -225,7 +224,6 @@ public class MetroView extends ViewGroup {
         final int deltaY = y - mMotionY;
         final int distance = Math.abs(deltaY);
         if (distance > mTouchSlop) {
-            createScrollingCache();
             if (getParent() != null) {
                 getParent().requestDisallowInterceptTouchEvent(true);
             }
@@ -253,6 +251,10 @@ public class MetroView extends ViewGroup {
         mMotionY = y;
     }
 
+    /**
+     * @param deltaY scroll offset, scroll down if offset > 0, scroll up if offset < 0
+     * @return return true if have scroll to edge
+     */
     private boolean trackMotionScroll(int deltaY) {
         final int childCount = getChildCount();
         if (childCount == 0) {
@@ -262,14 +264,44 @@ public class MetroView extends ViewGroup {
         boolean result;
         final int oldTop = mFirstRowTop;
         mFirstRowTop += deltaY;
-        if (mFirstRowIndex == 0 && mFirstRowTop > 0) {
+        if (mFirstRowIndex == 0 && mFirstRowTop > 0) {  //detect scroll to top
             mFirstRowTop = 0;
             deltaY = -oldTop;
             result = true;
-        } else {
+        } else {  //detect scroll to bottom
             result = false;
         }
+
         ViewGroupUtils.offsetChildrenTopAndBottom(this, deltaY);
+
+        final boolean down = deltaY < 0;
+        List<View> indexToRemove = new ArrayList<>();
+
+        if (down) {
+            for (int i = 0; i < childCount; i++) {
+                final View child = getChildAt(i);
+                if (child.getBottom() < getTop()) {
+                    indexToRemove.add(child);
+                    child.sendAccessibilityEvent(
+                            AccessibilityEventCompat.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED);
+                    LayoutParams lp = (LayoutParams) child.getLayoutParams();
+                    mRecycleBin.saveView(lp.size, child);
+                    int location[] = getLocationInGrid(lp.index, true);
+                    mFirstRowIndex = Math.max(mFirstRowIndex, location[1]);
+                }
+            }
+        } else {
+
+        }
+
+        if (indexToRemove.size() > 0) {
+            for (View child : indexToRemove) {
+                detachViewFromParent(child);
+            }
+        }
+
+        fillGap(down);
+
         return result;
     }
 
@@ -304,70 +336,112 @@ public class MetroView extends ViewGroup {
         }
     }
 
+    private void fillGap(boolean down) {
+        if (mAdapter == null || getChildCount() == 0) return;
+        if (down) {
+            View lastChild = getChildAt(getChildCount() - 1);
+            LayoutParams lastLp = (LayoutParams) lastChild.getLayoutParams();
+            int startIndex = lastLp.index + 1;
+            int startTop = lastChild.getTop() + mUnitSize;
+            fillDown(startIndex, startTop);
+        } else {
+
+        }
+    }
+
     private void fillChildren() {
         log("fillChildren()");
         if (mAdapter == null) return;
         mFirstRowIndex = mFirstRowTop = 0;
-        int currentIndex = 0;
+        int startIndex = 0;
         int startTop = getPaddingTop();
-        while (startTop < getBottom() - getPaddingBottom()
-                && currentIndex <= mAdapter.getCount() - 1) {
-            View view = mAdapter.getView(mInflater, currentIndex, null, this);
-            if (mCachingStarted && !view.isDrawingCacheEnabled()) {
-                view.setDrawingCacheEnabled(true);
-            }
-            int size = mAdapter.getSize(currentIndex);
-            int itemWidth = 0, itemHeight = 0;
-            LayoutParams lp = (LayoutParams) view.getLayoutParams();
-            if (lp == null || lp.width < 0 || lp.height < 0 || lp.size != size) {
-                switch (size) {
-                    case SIZE_SMALL:
-                        itemWidth = itemHeight = mUnitSize;
-                        break;
-                    case SIZE_MIDDLE:
-                        itemWidth = itemHeight = mUnitSize * 2 + mDividerSize;
-                        break;
-                    case SIZE_BIG:
-                        itemWidth = mUnitSize * 4 + mDividerSize * 3;
-                        itemHeight = mUnitSize * 2 + mDividerSize;
-                        break;
-                }
-                lp = new LayoutParams(itemWidth, itemHeight, size, currentIndex);
-                view.measure(
-                        MeasureSpec.makeMeasureSpec(itemWidth, MeasureSpec.EXACTLY),
-                        MeasureSpec.makeMeasureSpec(itemHeight, MeasureSpec.EXACTLY));
-            } else {
-                lp.index = currentIndex;
-            }
-            addViewInLayout(view, -1, lp, true);
-            int[] location = getLocationInGrid(currentIndex);
-            final int left = getPaddingLeft() + location[0] * (mUnitSize + mDividerSize);
-            final int top = getPaddingTop() + location[1] * (mUnitSize + mDividerSize) + mFirstRowTop;
-            view.layout(left, top, left + view.getMeasuredWidth(), top + view.getMeasuredHeight());
-            int[] nextLocation = getLocationInGrid(currentIndex + 1);
-            startTop = getPaddingTop() + nextLocation[1] * (mUnitSize + mDividerSize) + mFirstRowTop;
-            currentIndex++;
-        }
+        fillDown(startIndex, startTop);
         mLayoutState = LAYOUT_STATE_IDLE;
         requestLayout();
     }
 
-    private int[] getLocationInGrid(int index) {
-        if (index == 0) {   //init
-            mCurrentGridColumn = mCurrentGridRow = 0;
+    private void fillDown(int startIndex, int startTop) {
+        log("fillDown");
+        if (mAdapter == null) return;
+        while (startTop < getBottom() - getPaddingBottom() && startIndex <= mAdapter.getCount() - 1) {
+            View view = setupAndAddView(startIndex);
+            if (view == null) continue;
+            int[] location = getLocationInGrid(startIndex, true);
+            final int left = getPaddingLeft() + location[0] * (mUnitSize + mDividerSize);
+            final int top = getPaddingTop() + location[1] * (mUnitSize + mDividerSize) + mFirstRowTop;
+            view.layout(left, top, left + view.getMeasuredWidth(), top + view.getMeasuredHeight());
+            startIndex++;
+            if (startIndex < mAdapter.getCount()) {
+                int[] nextLocation = getLocationInGrid(startIndex, true);
+                if (nextLocation[1] != location[1]) { //newLine
+                    startTop += mUnitSize + mDividerSize;
+                }
+            }
         }
+    }
 
-        if (mCurrentGridColumn >= mColumnNum) { //move down
-            mCurrentGridRow++;
-            mCurrentGridColumn = 0;
-            return getLocationInGrid(index);
+    @Nullable
+    private View setupAndAddView(int index) {
+        if (mAdapter == null) return null;
+        int size = mAdapter.getSize(index);
+        boolean reuse = true;
+        View recycledView = mRecycleBin.getRecycledView(size);
+        View view = mAdapter.getView(mInflater, index, recycledView, this);
+        if (view != recycledView) {
+            mRecycleBin.saveView(size, recycledView);
+            reuse = false;
         }
+        int itemWidth = 0, itemHeight = 0;
+        LayoutParams lp = (LayoutParams) view.getLayoutParams();
+        if (lp == null || lp.width < 0 || lp.height < 0 || lp.size != size) {
+            switch (size) {
+                case SIZE_SMALL:
+                    itemWidth = itemHeight = mUnitSize;
+                    break;
+                case SIZE_MIDDLE:
+                    itemWidth = itemHeight = mUnitSize * 2 + mDividerSize;
+                    break;
+                case SIZE_BIG:
+                    itemWidth = mUnitSize * 4 + mDividerSize * 3;
+                    itemHeight = mUnitSize * 2 + mDividerSize;
+                    break;
+            }
+            lp = new LayoutParams(itemWidth, itemHeight, size, index);
+            view.measure(
+                    MeasureSpec.makeMeasureSpec(itemWidth, MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(itemHeight, MeasureSpec.EXACTLY));
+        } else {
+            lp.index = index;
+        }
+        view.setLayoutParams(lp);
+        if (reuse) {
+            attachViewToParent(view, -1, view.getLayoutParams());
+        } else {
+            addViewInLayout(view, -1, view.getLayoutParams(), true);
+        }
+        return view;
+    }
 
-        if (mGrid.get(mCurrentGridRow)[mCurrentGridColumn] == index) {
-            return new int[] { mCurrentGridColumn, mCurrentGridRow };
-        } else {    //move right
-            mCurrentGridColumn++;
-            return getLocationInGrid(index);
+    private int[] getLocationInGrid(int index, boolean init) {
+        try {
+            if (init) {
+                mCurrentGridColumn = mCurrentGridRow = 0;
+            }
+
+            if (mCurrentGridColumn >= mColumnNum) { //move down
+                mCurrentGridRow++;
+                mCurrentGridColumn = 0;
+                return getLocationInGrid(index, false);
+            }
+
+            if (mGrid.get(mCurrentGridRow)[mCurrentGridColumn] == index) {
+                return new int[]{mCurrentGridColumn, mCurrentGridRow};
+            } else {    //move right
+                mCurrentGridColumn++;
+                return getLocationInGrid(index, false);
+            }
+        } catch (IndexOutOfBoundsException e) {
+            throw new IndexOutOfBoundsException("Out of bounds when get location for " + index);
         }
     }
 
@@ -377,6 +451,7 @@ public class MetroView extends ViewGroup {
     }
 
     private void resetLayout() {
+        mRecycleBin.reset();
         newEmptyGrid();
         fillGrid();
         removeAllViewsInLayout();
@@ -580,54 +655,12 @@ public class MetroView extends ViewGroup {
         if (BuildConfig.DEBUG) Log.d(LOG_TAG, msg);
     }
 
-    private void createScrollingCache() {
-        if (mScrollingCacheEnabled && !mCachingStarted && !ViewCompat.isHardwareAccelerated(this)) {
-            setChildrenDrawnWithCacheEnabled(true);
-            setChildrenDrawingCacheEnabled(true);
-            mCachingStarted = true;
-        }
-    }
-
-    public void setScrollingCacheEnabled(boolean enabled) {
-        if (mScrollingCacheEnabled && !enabled) {
-            clearScrollingCache();
-        }
-        mScrollingCacheEnabled = enabled;
-    }
-
-    private void clearScrollingCache() {
-        if (!ViewCompat.isHardwareAccelerated(this)) {
-            if (mClearScrollingCache == null) {
-                mClearScrollingCache = new Runnable() {
-                    @Override
-                    public void run() {
-                        if (mCachingStarted) {
-                            mCachingStarted = false;
-                            setChildrenDrawnWithCacheEnabled(false);
-                            if ((getPersistentDrawingCache() & PERSISTENT_SCROLLING_CACHE) == 0) {
-                                setChildrenDrawingCacheEnabled(false);
-                            }
-                            if (!isAlwaysDrawnWithCacheEnabled()) {
-                                invalidate();
-                            }
-                        }
-                    }
-                };
-            }
-            post(mClearScrollingCache);
-        }
-    }
-
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
 
         if (mFlingRunnable != null) {
             removeCallbacks(mFlingRunnable);
-        }
-
-        if (mClearScrollingCache != null) {
-            removeCallbacks(mClearScrollingCache);
         }
     }
 
@@ -652,8 +685,6 @@ public class MetroView extends ViewGroup {
 
         void endFling() {
             removeCallbacks(this);
-
-            clearScrollingCache();
             mScroller.abortAnimation();
         }
 
@@ -684,6 +715,53 @@ public class MetroView extends ViewGroup {
                 ViewCompat.postOnAnimation(MetroView.this, this);
             } else {
                 endFling();
+            }
+        }
+    }
+
+    class RecycleBin {
+        private LinkedList<View> mSmallSizeViews = new LinkedList<>();
+        private LinkedList<View> mMiddleSizeViews = new LinkedList<>();
+        private LinkedList<View> mBigSizeViews = new LinkedList<>();
+
+        public void reset() {
+            mSmallSizeViews.clear();
+            mMiddleSizeViews.clear();
+            mBigSizeViews.clear();
+        }
+
+        public void saveView(@Size int size, View view) {
+            if (view != null) {
+                LinkedList<View> container = getContainer(size);
+                if (container != null) {
+                    container.push(view);
+                }
+            }
+        }
+
+        @Nullable
+        public View getRecycledView(@Size int size) {
+            LinkedList<View> container = getContainer(size);
+            if (container != null) {
+                View view = container.poll();
+                if (view == null) return null;
+                LayoutParams lp = (LayoutParams) view.getLayoutParams();
+                if (lp.size != size) {
+                    saveView(lp.size, view);
+                    return null;
+                } else {
+                    return view;
+                }
+            }
+            return null;
+        }
+
+        private LinkedList<View> getContainer(@Size int size) {
+            switch (size) {
+                case SIZE_SMALL: return mSmallSizeViews;
+                case SIZE_MIDDLE: return mMiddleSizeViews;
+                case SIZE_BIG: return mBigSizeViews;
+                default: return null;
             }
         }
     }
