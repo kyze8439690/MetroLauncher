@@ -15,7 +15,6 @@ import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
-import android.widget.OverScroller;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -101,6 +100,8 @@ public class MetroView extends ViewGroup {
 
         setAlwaysDrawnWithCacheEnabled(false);
         setScrollingCacheEnabled(true);
+        setClipChildren(false);
+        setClipToPadding(false);
     }
 
     @Override
@@ -253,9 +254,23 @@ public class MetroView extends ViewGroup {
     }
 
     private boolean trackMotionScroll(int deltaY) {
+        final int childCount = getChildCount();
+        if (childCount == 0) {
+            return true;
+        }
+
+        boolean result;
+        final int oldTop = mFirstRowTop;
         mFirstRowTop += deltaY;
+        if (mFirstRowIndex == 0 && mFirstRowTop > 0) {
+            mFirstRowTop = 0;
+            deltaY = -oldTop;
+            result = true;
+        } else {
+            result = false;
+        }
         ViewGroupUtils.offsetChildrenTopAndBottom(this, deltaY);
-        return false;
+        return result;
     }
 
     private void onSecondaryPointerUp(MotionEvent event) {
@@ -294,8 +309,8 @@ public class MetroView extends ViewGroup {
         if (mAdapter == null) return;
         mFirstRowIndex = mFirstRowTop = 0;
         int currentIndex = 0;
-        int reachedBottom = getPaddingTop();
-        while (reachedBottom < getBottom() - getPaddingBottom()
+        int startTop = getPaddingTop();
+        while (startTop < getBottom() - getPaddingBottom()
                 && currentIndex <= mAdapter.getCount() - 1) {
             View view = mAdapter.getView(mInflater, currentIndex, null, this);
             if (mCachingStarted && !view.isDrawingCacheEnabled()) {
@@ -329,7 +344,8 @@ public class MetroView extends ViewGroup {
             final int left = getPaddingLeft() + location[0] * (mUnitSize + mDividerSize);
             final int top = getPaddingTop() + location[1] * (mUnitSize + mDividerSize) + mFirstRowTop;
             view.layout(left, top, left + view.getMeasuredWidth(), top + view.getMeasuredHeight());
-            reachedBottom = Math.max(view.getBottom(), reachedBottom);
+            int[] nextLocation = getLocationInGrid(currentIndex + 1);
+            startTop = getPaddingTop() + nextLocation[1] * (mUnitSize + mDividerSize) + mFirstRowTop;
             currentIndex++;
         }
         mLayoutState = LAYOUT_STATE_IDLE;

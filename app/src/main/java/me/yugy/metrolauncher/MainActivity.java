@@ -20,7 +20,7 @@ public class MainActivity extends Activity {
         mMetroView.setAdapter(new MetroAdapter() {
             @Override
             public int getSize(int position) {
-                switch (position % 3) {
+                switch (position % 2) {
                     case 0: return MetroView.SIZE_SMALL;
                     case 1: return MetroView.SIZE_MIDDLE;
                     case 2: return MetroView.SIZE_BIG;
