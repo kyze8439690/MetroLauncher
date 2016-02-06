@@ -24,17 +24,19 @@ public class MainActivity extends Activity {
         mMetroView.setAdapter(new MetroAdapter() {
             @Override
             public int getSize(int position) {
-                switch (position % 2) {
+                switch (position % 6) {
                     case 0: return MetroView.SIZE_SMALL;
                     case 1: return MetroView.SIZE_MIDDLE;
-                    case 2: return MetroView.SIZE_BIG;
+                    case 2: return MetroView.SIZE_SMALL;
+                    case 3: return MetroView.SIZE_MIDDLE;
+                    case 4: return MetroView.SIZE_SMALL;
+                    case 5: return MetroView.SIZE_SMALL;
                 }
                 return MetroView.SIZE_BIG;
             }
 
             @Override
             public View getView(LayoutInflater inflater, final int position, @Nullable View convertView, ViewGroup parent) {
-                DebugUtils.log(position);
                 View view = convertView;
                 Holder holder;
                 if (view == null) {
@@ -55,7 +57,7 @@ public class MainActivity extends Activity {
 
             @Override
             public int getCount() {
-                return 30;
+                return 150;
             }
 
             class Holder {

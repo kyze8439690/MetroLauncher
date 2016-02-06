@@ -56,7 +56,7 @@ public class MetroView extends ViewGroup {
     @LayoutState
     private int mLayoutState;
 
-    private int mFirstRowIndex, mFirstRowTop;
+    private int mFirstRowTop;
 
     private List<Integer[]> mGrid;
 
@@ -262,15 +262,14 @@ public class MetroView extends ViewGroup {
             return true;
         }
 
-        Boolean result = null;
+        boolean result = false;
         final int oldTop = mFirstRowTop;
-        if (mFirstRowIndex == 0 && mFirstRowTop + deltaY > 0) {  //detect scroll to top
-            mFirstRowTop = 0;
+        if (mFirstRowTop + deltaY > 0) {  //detect scroll to top
             deltaY = -oldTop;
             result = true;
         }
 
-        if (result == null) {
+        if (!result) {
             final View lastChild = getChildAt(childCount - 1);
             final LayoutParams lastLp = (LayoutParams) lastChild.getLayoutParams();
             if (lastLp.index == mAdapter.getCount() - 1) {
@@ -295,40 +294,46 @@ public class MetroView extends ViewGroup {
             }
         }
 
-        if (result == null) {
-            mFirstRowTop += deltaY;
-            result = false;
-        }
+        mFirstRowTop += deltaY;
 
         ViewGroupUtils.offsetChildrenTopAndBottom(this, deltaY);
 
         final boolean down = deltaY < 0;
-        List<View> indexToRemove = new ArrayList<>();
+        List<View> indexOfChildrenToRemove = new ArrayList<>();
 
         if (down) {
             for (int i = 0; i < childCount; i++) {
                 final View child = getChildAt(i);
                 if (child.getBottom() < getTop()) {
-                    indexToRemove.add(child);
+                    indexOfChildrenToRemove.add(child);
                     child.sendAccessibilityEvent(
                             AccessibilityEventCompat.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED);
                     LayoutParams lp = (LayoutParams) child.getLayoutParams();
                     mRecycleBin.saveView(lp.size, child);
-                    int location[] = getLocationInGrid(lp.index, true);
-                    mFirstRowIndex = Math.max(mFirstRowIndex, location[1]);
                 }
             }
         } else {
-
+            for (int i = childCount - 1; i >= 0; i--) {
+                final View child = getChildAt(i);
+                if (child.getTop() > getBottom()) {
+                    indexOfChildrenToRemove.add(child);
+                    child.sendAccessibilityEvent(
+                            AccessibilityEventCompat.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED);
+                    LayoutParams lp = (LayoutParams) child.getLayoutParams();
+                    mRecycleBin.saveView(lp.size, child);
+                }
+            }
         }
 
-        if (indexToRemove.size() > 0) {
-            for (View child : indexToRemove) {
+        if (indexOfChildrenToRemove.size() > 0) {
+            for (View child : indexOfChildrenToRemove) {
                 detachViewFromParent(child);
             }
         }
 
         fillGap(down);
+
+        log("result: " + result + ", deltaY: " + deltaY + ", mFirstRowTop: " + mFirstRowTop + ", viewCount: " + getChildCount());
 
         return result;
     }
@@ -367,20 +372,20 @@ public class MetroView extends ViewGroup {
     private void fillGap(boolean down) {
         if (mAdapter == null || getChildCount() == 0) return;
         if (down) {
-            View lastChild = getChildAt(getChildCount() - 1);
+            final View lastChild = getChildAt(getChildCount() - 1);
             LayoutParams lastLp = (LayoutParams) lastChild.getLayoutParams();
             int startIndex = lastLp.index + 1;
-            int startTop = lastChild.getTop() + mUnitSize;
+            int startTop = lastChild.getTop() + mUnitSize + mDividerSize;
             fillDown(startIndex, startTop);
         } else {
-
+            fillUp();
         }
     }
 
     private void fillChildren() {
         log("fillChildren()");
         if (mAdapter == null) return;
-        mFirstRowIndex = mFirstRowTop = 0;
+        mFirstRowTop = 0;
         int startIndex = 0;
         int startTop = getPaddingTop();
         fillDown(startIndex, startTop);
@@ -389,11 +394,18 @@ public class MetroView extends ViewGroup {
     }
 
     private void fillDown(int startIndex, int startTop) {
-        log("fillDown");
         if (mAdapter == null) return;
-        while (startTop < getBottom() - getPaddingBottom() && startIndex <= mAdapter.getCount() - 1) {
-            View view = setupAndAddView(startIndex);
-            if (view == null) continue;
+        while (startTop < getBottom() && startIndex <= mAdapter.getCount() - 1) {
+            if (specifiedIndexChildInLayout(startIndex)) {
+                startIndex++;
+                continue;
+            }
+            int size = mAdapter.getSize(startIndex);
+            View view = setupAndAddView(startIndex, size);
+            if (view == null) {
+                startIndex++;
+                continue;
+            }
             int[] location = getLocationInGrid(startIndex, true);
             final int left = getPaddingLeft() + location[0] * (mUnitSize + mDividerSize);
             final int top = getPaddingTop() + location[1] * (mUnitSize + mDividerSize) + mFirstRowTop;
@@ -401,17 +413,47 @@ public class MetroView extends ViewGroup {
             startIndex++;
             if (startIndex < mAdapter.getCount()) {
                 int[] nextLocation = getLocationInGrid(startIndex, true);
-                if (nextLocation[1] != location[1]) { //newLine
+                if (nextLocation[1] != location[1]) { //next line
                     startTop += mUnitSize + mDividerSize;
                 }
             }
         }
     }
 
+    private void fillUp() {
+        if (mAdapter == null) return;
+        final int count = mAdapter.getCount();
+        for (int i = 0; i < count; i++) {
+            if (specifiedIndexChildInLayout(i)) continue;
+            int[] location = getLocationInGrid(i, true);
+            final int size = mAdapter.getSize(i);
+            final int left = getPaddingLeft() + location[0] * (mUnitSize + mDividerSize);
+            final int top = getPaddingTop() + location[1] * (mUnitSize + mDividerSize) + mFirstRowTop;
+            final int bottom = top + getWidthAndHeightBaseOnSize(size)[1];
+            if (top > getBottom()) return;
+            if (bottom > getTop()) {
+                View view = setupAndAddView(i, size);
+                if (view == null) continue;
+                view.layout(left, top, left + view.getMeasuredWidth(), top + view.getMeasuredHeight());
+            }
+        }
+    }
+
+    private boolean specifiedIndexChildInLayout(int index) {
+        final int count = getChildCount();
+        for (int i = 0; i < count; i++) {
+            final View child = getChildAt(i);
+            final LayoutParams lp = (LayoutParams) child.getLayoutParams();
+            if (lp.index == index) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Nullable
-    private View setupAndAddView(int index) {
+    private View setupAndAddView(int index, @Size int size) {
         if (mAdapter == null) return null;
-        int size = mAdapter.getSize(index);
         boolean reuse = true;
         View recycledView = mRecycleBin.getRecycledView(size);
         View view = mAdapter.getView(mInflater, index, recycledView, this);
@@ -419,26 +461,21 @@ public class MetroView extends ViewGroup {
             mRecycleBin.saveView(size, recycledView);
             reuse = false;
         }
-        int itemWidth = 0, itemHeight = 0;
         LayoutParams lp = (LayoutParams) view.getLayoutParams();
         if (lp == null || lp.width < 0 || lp.height < 0 || lp.size != size) {
-            switch (size) {
-                case SIZE_SMALL:
-                    itemWidth = itemHeight = mUnitSize;
-                    break;
-                case SIZE_MIDDLE:
-                    itemWidth = itemHeight = mUnitSize * 2 + mDividerSize;
-                    break;
-                case SIZE_BIG:
-                    itemWidth = mUnitSize * 4 + mDividerSize * 3;
-                    itemHeight = mUnitSize * 2 + mDividerSize;
-                    break;
-            }
-            lp = new LayoutParams(itemWidth, itemHeight, size, index);
+            int[] widthAndHeight = getWidthAndHeightBaseOnSize(size);
+            lp = new LayoutParams(widthAndHeight[0], widthAndHeight[1], size, index);
             view.measure(
-                    MeasureSpec.makeMeasureSpec(itemWidth, MeasureSpec.EXACTLY),
-                    MeasureSpec.makeMeasureSpec(itemHeight, MeasureSpec.EXACTLY));
+                    MeasureSpec.makeMeasureSpec(widthAndHeight[0], MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(widthAndHeight[1], MeasureSpec.EXACTLY));
         } else {
+            if (view.isLayoutRequested()) {
+                int[] widthAndHeight = getWidthAndHeightBaseOnSize(size);
+                lp = new LayoutParams(widthAndHeight[0], widthAndHeight[1], size, index);
+                view.measure(
+                        MeasureSpec.makeMeasureSpec(widthAndHeight[0], MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(widthAndHeight[1], MeasureSpec.EXACTLY));
+            }
             lp.index = index;
         }
         view.setLayoutParams(lp);
@@ -448,6 +485,23 @@ public class MetroView extends ViewGroup {
             addViewInLayout(view, -1, view.getLayoutParams(), true);
         }
         return view;
+    }
+
+    private int[] getWidthAndHeightBaseOnSize(int size) {
+        int itemWidth = 0, itemHeight = 0;
+        switch (size) {
+            case SIZE_SMALL:
+                itemWidth = itemHeight = mUnitSize;
+                break;
+            case SIZE_MIDDLE:
+                itemWidth = itemHeight = mUnitSize * 2 + mDividerSize;
+                break;
+            case SIZE_BIG:
+                itemWidth = mUnitSize * 4 + mDividerSize * 3;
+                itemHeight = mUnitSize * 2 + mDividerSize;
+                break;
+        }
+        return new int[] {itemWidth, itemHeight};
     }
 
     private int[] getLocationInGrid(int index, boolean init) {
