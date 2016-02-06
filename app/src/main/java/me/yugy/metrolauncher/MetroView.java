@@ -8,6 +8,7 @@ import android.support.v4.view.MotionEventCompat;
 import android.support.v4.view.VelocityTrackerCompat;
 import android.support.v4.view.accessibility.AccessibilityEventCompat;
 import android.support.v4.widget.ScrollerCompat;
+import android.text.Layout;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -257,18 +258,45 @@ public class MetroView extends ViewGroup {
      */
     private boolean trackMotionScroll(int deltaY) {
         final int childCount = getChildCount();
-        if (childCount == 0) {
+        if (childCount == 0 || mAdapter == null) {
             return true;
         }
 
-        boolean result;
+        Boolean result = null;
         final int oldTop = mFirstRowTop;
-        mFirstRowTop += deltaY;
-        if (mFirstRowIndex == 0 && mFirstRowTop > 0) {  //detect scroll to top
+        if (mFirstRowIndex == 0 && mFirstRowTop + deltaY > 0) {  //detect scroll to top
             mFirstRowTop = 0;
             deltaY = -oldTop;
             result = true;
-        } else {  //detect scroll to bottom
+        }
+
+        if (result == null) {
+            final View lastChild = getChildAt(childCount - 1);
+            final LayoutParams lastLp = (LayoutParams) lastChild.getLayoutParams();
+            if (lastLp.index == mAdapter.getCount() - 1) {
+                int[] location = getLocationInGrid(lastLp.index, true);
+                final int row = location[1];
+                int maxBottom = lastChild.getBottom();
+                for (int i = childCount - 1; i >= 0 ; i--) {
+                    final View child = getChildAt(i);
+                    final LayoutParams lp = (LayoutParams) child.getLayoutParams();
+                    final int index = lp.index;
+                    location = getLocationInGrid(index, true);
+                    if (location[1] == row) {
+                        maxBottom = Math.max(maxBottom, child.getBottom());
+                    } else {
+                        break;
+                    }
+                }
+                if (maxBottom + deltaY < getBottom() - getPaddingBottom()) {    //detect scroll to bottom
+                    deltaY = getBottom() - getPaddingBottom() - maxBottom;
+                    result = true;
+                }
+            }
+        }
+
+        if (result == null) {
+            mFirstRowTop += deltaY;
             result = false;
         }
 
