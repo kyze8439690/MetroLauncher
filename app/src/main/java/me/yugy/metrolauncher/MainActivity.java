@@ -1,11 +1,19 @@
 package me.yugy.metrolauncher;
 
+import android.animation.Animator;
+import android.animation.AnimatorInflater;
+import android.animation.AnimatorListenerAdapter;
 import android.app.Activity;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
+import android.support.v4.animation.AnimatorCompatHelper;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.Animation;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.RotateAnimation;
+import android.view.animation.Transformation;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -24,13 +32,18 @@ public class MainActivity extends Activity {
         mMetroView.setAdapter(new MetroAdapter() {
             @Override
             public int getSize(int position) {
-                switch (position % 6) {
+                switch (position % 11) {
                     case 0: return MetroView.SIZE_SMALL;
                     case 1: return MetroView.SIZE_MIDDLE;
                     case 2: return MetroView.SIZE_SMALL;
-                    case 3: return MetroView.SIZE_MIDDLE;
+                    case 3: return MetroView.SIZE_SMALL;
                     case 4: return MetroView.SIZE_SMALL;
-                    case 5: return MetroView.SIZE_SMALL;
+                    case 5: return MetroView.SIZE_MIDDLE;
+                    case 6: return MetroView.SIZE_SMALL;
+                    case 7: return MetroView.SIZE_SMALL;
+                    case 8: return MetroView.SIZE_SMALL;
+                    case 9: return MetroView.SIZE_SMALL;
+                    case 10: return MetroView.SIZE_BIG;
                 }
                 return MetroView.SIZE_BIG;
             }
@@ -48,10 +61,12 @@ public class MainActivity extends Activity {
                 holder.text.setText(String.valueOf(position));
                 view.setOnClickListener(new View.OnClickListener() {
                     @Override
-                    public void onClick(View v) {
-                        Toast.makeText(v.getContext(), String.valueOf(position), Toast.LENGTH_SHORT).show();
+                    public void onClick(final View v) {
+                        Toast.makeText(v.getContext(), "" + position, Toast.LENGTH_SHORT).show();
+                        mMetroView.animateOpen(v);
                     }
                 });
+                view.setVisibility(View.VISIBLE);
                 return view;
             }
 

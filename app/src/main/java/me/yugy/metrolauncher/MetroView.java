@@ -1,14 +1,14 @@
 package me.yugy.metrolauncher;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.support.annotation.IntDef;
 import android.support.annotation.Nullable;
 import android.support.v4.view.MotionEventCompat;
 import android.support.v4.view.VelocityTrackerCompat;
-import android.support.v4.view.accessibility.AccessibilityEventCompat;
 import android.support.v4.widget.ScrollerCompat;
-import android.text.Layout;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -17,12 +17,18 @@ import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
+import android.view.animation.AccelerateInterpolator;
+import android.view.animation.DecelerateInterpolator;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Random;
+import java.util.Set;
 
 import me.yugy.app.common.compat.ViewCompat;
 import me.yugy.app.common.utils.ViewGroupUtils;
@@ -52,13 +58,13 @@ public class MetroView extends ViewGroup {
     private LayoutInflater mInflater;
     private int mDividerSize;
     private int mUnitSize;
-    private int mColumnNum = 6; //// TODO: 1/31/16
+    private int mColumnNum = 4; //// TODO: 1/31/16
     @LayoutState
     private int mLayoutState;
 
     private int mFirstRowTop;
 
-    private List<Integer[]> mGrid;
+    private HashMap<Integer, Integer[]> mLocationMap;
 
     private int mActivePointerId = INVALID_POINTER;
     private int mMotionX, mMotionY;
@@ -102,6 +108,63 @@ public class MetroView extends ViewGroup {
         setClipChildren(false);
         setClipToPadding(false);
         mRecycleBin = new RecycleBin();
+    }
+
+    public void animateOpen(final View view) {
+        final int count = getChildCount();
+        List<View> views = new ArrayList<>(count - 1);
+        for (int i = 0; i < count; i++) {
+            final View child = getChildAt(i);
+            if (!child.equals(view)) {
+                views.add(child);
+            }
+        }
+        int startOffset = 0;
+        while (views.size() > 0) {
+            final int index = new Random().nextInt(views.size());
+            final View animateView = views.remove(index);
+            animateView.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    animateFlip(animateView);
+                }
+            }, startOffset);
+            startOffset += 25;
+        }
+        startOffset += 300;
+        view.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                animateFlip(view);
+            }
+        }, startOffset);
+    }
+
+    private void animateFlip(final View animateView) {
+        animateView.setPivotX(0);
+        animateView.animate()
+                .rotationY(-45)
+                .translationX(-animateView.getLeft() - animateView.getWidth() - getWidth() / 2)
+//                .scaleX(1.1f).scaleY(1.1f)
+                .setDuration(300)
+                .setInterpolator(new AccelerateInterpolator())
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationStart(Animator animation) {
+                        animateView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+                    }
+
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        animateView.setLayerType(View.LAYER_TYPE_NONE, null);
+                        animateView.setVisibility(View.INVISIBLE);
+                        animateView.setRotationY(0);
+                        animateView.setTranslationX(0f);
+                        animateView.setScaleX(1f);
+                        animateView.setScaleY(1f);
+                    }
+                })
+                .start();
     }
 
     @Override
@@ -273,14 +336,14 @@ public class MetroView extends ViewGroup {
             final View lastChild = getChildAt(childCount - 1);
             final LayoutParams lastLp = (LayoutParams) lastChild.getLayoutParams();
             if (lastLp.index == mAdapter.getCount() - 1) {
-                int[] location = getLocationInGrid(lastLp.index, true);
+                Integer[] location = getLocationInMap(lastLp.index);
                 final int row = location[1];
                 int maxBottom = lastChild.getBottom();
                 for (int i = childCount - 1; i >= 0 ; i--) {
                     final View child = getChildAt(i);
                     final LayoutParams lp = (LayoutParams) child.getLayoutParams();
                     final int index = lp.index;
-                    location = getLocationInGrid(index, true);
+                    location = getLocationInMap(index);
                     if (location[1] == row) {
                         maxBottom = Math.max(maxBottom, child.getBottom());
                     } else {
@@ -306,8 +369,6 @@ public class MetroView extends ViewGroup {
                 final View child = getChildAt(i);
                 if (child.getBottom() < getTop()) {
                     indexOfChildrenToRemove.add(child);
-                    child.sendAccessibilityEvent(
-                            AccessibilityEventCompat.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED);
                     LayoutParams lp = (LayoutParams) child.getLayoutParams();
                     mRecycleBin.saveView(lp.size, child);
                 }
@@ -317,8 +378,6 @@ public class MetroView extends ViewGroup {
                 final View child = getChildAt(i);
                 if (child.getTop() > getBottom()) {
                     indexOfChildrenToRemove.add(child);
-                    child.sendAccessibilityEvent(
-                            AccessibilityEventCompat.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED);
                     LayoutParams lp = (LayoutParams) child.getLayoutParams();
                     mRecycleBin.saveView(lp.size, child);
                 }
@@ -395,8 +454,9 @@ public class MetroView extends ViewGroup {
 
     private void fillDown(int startIndex, int startTop) {
         if (mAdapter == null) return;
+        HashSet<Integer> index = getIndexInLayout();
         while (startTop < getBottom() && startIndex <= mAdapter.getCount() - 1) {
-            if (specifiedIndexChildInLayout(startIndex)) {
+            if (index.contains(startIndex)) {
                 startIndex++;
                 continue;
             }
@@ -406,14 +466,15 @@ public class MetroView extends ViewGroup {
                 startIndex++;
                 continue;
             }
-            int[] location = getLocationInGrid(startIndex, true);
+            index.add(startIndex);
+            Integer[] location = getLocationInMap(startIndex);
             final int left = getPaddingLeft() + location[0] * (mUnitSize + mDividerSize);
             final int top = getPaddingTop() + location[1] * (mUnitSize + mDividerSize) + mFirstRowTop;
             view.layout(left, top, left + view.getMeasuredWidth(), top + view.getMeasuredHeight());
             startIndex++;
             if (startIndex < mAdapter.getCount()) {
-                int[] nextLocation = getLocationInGrid(startIndex, true);
-                if (nextLocation[1] != location[1]) { //next line
+                Integer[] nextLocation = getLocationInMap(startIndex);
+                if (!nextLocation[1].equals(location[1])) { //next line
                     startTop += mUnitSize + mDividerSize;
                 }
             }
@@ -422,10 +483,11 @@ public class MetroView extends ViewGroup {
 
     private void fillUp() {
         if (mAdapter == null) return;
+        HashSet<Integer> index = getIndexInLayout();
         final int count = mAdapter.getCount();
         for (int i = 0; i < count; i++) {
-            if (specifiedIndexChildInLayout(i)) continue;
-            int[] location = getLocationInGrid(i, true);
+            if (index.contains(i)) continue;
+            Integer[] location = getLocationInMap(i);
             final int size = mAdapter.getSize(i);
             final int left = getPaddingLeft() + location[0] * (mUnitSize + mDividerSize);
             final int top = getPaddingTop() + location[1] * (mUnitSize + mDividerSize) + mFirstRowTop;
@@ -434,21 +496,21 @@ public class MetroView extends ViewGroup {
             if (bottom > getTop()) {
                 View view = setupAndAddView(i, size);
                 if (view == null) continue;
+                index.add(i);
                 view.layout(left, top, left + view.getMeasuredWidth(), top + view.getMeasuredHeight());
             }
         }
     }
 
-    private boolean specifiedIndexChildInLayout(int index) {
+    private HashSet<Integer> getIndexInLayout() {
+        HashSet<Integer> index = new HashSet<>();
         final int count = getChildCount();
         for (int i = 0; i < count; i++) {
             final View child = getChildAt(i);
             final LayoutParams lp = (LayoutParams) child.getLayoutParams();
-            if (lp.index == index) {
-                return true;
-            }
+            index.add(lp.index);
         }
-        return false;
+        return index;
     }
 
     @Nullable
@@ -504,23 +566,27 @@ public class MetroView extends ViewGroup {
         return new int[] {itemWidth, itemHeight};
     }
 
-    private int[] getLocationInGrid(int index, boolean init) {
+    private Integer[] getLocationInMap(int index) {
+        return mLocationMap.get(index);
+    }
+
+    private Integer[] getLocationInGrid(List<Integer[]> grid, int index, boolean init) {
         try {
             if (init) {
-                mCurrentGridColumn = mCurrentGridRow = 0;
+                mTempColumn = mTempRow = 0;
             }
 
-            if (mCurrentGridColumn >= mColumnNum) { //move down
-                mCurrentGridRow++;
-                mCurrentGridColumn = 0;
-                return getLocationInGrid(index, false);
+            if (mTempColumn >= mColumnNum) { //move down
+                mTempRow++;
+                mTempColumn = 0;
+                return getLocationInGrid(grid, index, false);
             }
 
-            if (mGrid.get(mCurrentGridRow)[mCurrentGridColumn] == index) {
-                return new int[]{mCurrentGridColumn, mCurrentGridRow};
+            if (grid.get(mTempRow)[mTempColumn] == index) {
+                return new Integer[]{mTempColumn, mTempRow};
             } else {    //move right
-                mCurrentGridColumn++;
-                return getLocationInGrid(index, false);
+                mTempColumn++;
+                return getLocationInGrid(grid, index, false);
             }
         } catch (IndexOutOfBoundsException e) {
             throw new IndexOutOfBoundsException("Out of bounds when get location for " + index);
@@ -534,126 +600,113 @@ public class MetroView extends ViewGroup {
 
     private void resetLayout() {
         mRecycleBin.reset();
-        newEmptyGrid();
-        fillGrid();
+        mLocationMap = new HashMap<>();
+        initLocationMap();
         removeAllViewsInLayout();
         mLayoutState = LAYOUT_STATE_INITIAL;
         requestLayout();
     }
 
-    private int mCurrentGridColumn, mCurrentGridRow;
+    private int mTempColumn, mTempRow;
 
-    private void fillGrid() {
-        log("fillGrid");
+    private void initLocationMap() {
+        log("initLocationMap()");
         if (mAdapter == null) return;
         final int itemCount = mAdapter.getCount();
-        mCurrentGridColumn = mCurrentGridRow = 0;
+        mTempColumn = mTempRow = 0;
+        List<Integer[]> grid = new ArrayList<>();
         for (int i = 0; i < itemCount; i++) {
             //check whether grid row is enough.
-            if (mCurrentGridRow + 1 >= mGrid.size() - 1) {
-                appendGridRows();
+            if (mTempRow + 1 >= grid.size() - 1) {
+                appendGridRows(grid, mColumnNum);
             }
             //check space
-            checkAndFillSpace(i);
+            checkAndFillSpace(grid, i);
         }
-        logGrid();
-    }
-
-    private void logGrid() {
-        for(Integer[] row : mGrid) {
-            StringBuilder builder = new StringBuilder("[");
-            for (Integer index : row) {
-                builder.append(index).append(", ");
-            }
-            builder.delete(builder.length() - 2, builder.length() - 1);
-            builder.append("]");
-            log(builder.toString());
+        for (int i = 0; i < itemCount; i++) {
+            Integer[] location = getLocationInGrid(grid, i, true);
+            mLocationMap.put(i, location);
         }
     }
 
-    private void checkAndFillSpace(int index) {
+    private void checkAndFillSpace(List<Integer[]> grid, int index) {
         if (mAdapter == null) return;
         int size;
         size = mAdapter.getSize(index);
         switch (size) {
             case SIZE_SMALL:
-                if (mCurrentGridColumn >= mColumnNum) { //row is not enough, move to next row
-                    mCurrentGridColumn = 0;
-                    mCurrentGridRow++;
-                    checkAndFillSpace(index);
+                if (mTempColumn >= mColumnNum) { //row is not enough, move to next row
+                    mTempColumn = 0;
+                    mTempRow++;
+                    checkAndFillSpace(grid, index);
                 } else {
-                    if (mGrid.get(mCurrentGridRow)[mCurrentGridColumn] == -1) {
-                        mGrid.get(mCurrentGridRow)[mCurrentGridColumn] = index;
+                    if (grid.get(mTempRow)[mTempColumn] == -1) {
+                        grid.get(mTempRow)[mTempColumn] = index;
                     } else {
                         //space has been taken, move right;
-                        mCurrentGridColumn++;
-                        checkAndFillSpace(index);
+                        mTempColumn++;
+                        checkAndFillSpace(grid, index);
                     }
                 }
                 break;
             case SIZE_MIDDLE:
-                if (mCurrentGridColumn + 1 >= mColumnNum) { //row is not enough, move to next row
-                    mCurrentGridColumn = 0;
-                    mCurrentGridRow++;
-                    checkAndFillSpace(index);
+                if (mTempColumn + 1 >= mColumnNum) { //row is not enough, move to next row
+                    mTempColumn = 0;
+                    mTempRow++;
+                    checkAndFillSpace(grid, index);
                 } else {
-                    if (mGrid.get(mCurrentGridRow)[mCurrentGridColumn] == -1
-                            && mGrid.get(mCurrentGridRow)[mCurrentGridColumn + 1] == -1
-                            && mGrid.get(mCurrentGridRow + 1)[mCurrentGridColumn] == -1
-                            && mGrid.get(mCurrentGridRow + 1)[mCurrentGridColumn + 1] == -1) {
-                        mGrid.get(mCurrentGridRow)[mCurrentGridColumn] = index;
-                        mGrid.get(mCurrentGridRow)[mCurrentGridColumn + 1] = index;
-                        mGrid.get(mCurrentGridRow + 1)[mCurrentGridColumn] = index;
-                        mGrid.get(mCurrentGridRow + 1)[mCurrentGridColumn + 1] = index;
+                    if (grid.get(mTempRow)[mTempColumn] == -1
+                            && grid.get(mTempRow)[mTempColumn + 1] == -1
+                            && grid.get(mTempRow + 1)[mTempColumn] == -1
+                            && grid.get(mTempRow + 1)[mTempColumn + 1] == -1) {
+                        grid.get(mTempRow)[mTempColumn] = index;
+                        grid.get(mTempRow)[mTempColumn + 1] = index;
+                        grid.get(mTempRow + 1)[mTempColumn] = index;
+                        grid.get(mTempRow + 1)[mTempColumn + 1] = index;
                     } else {    //space has been taken, move right
-                        mCurrentGridColumn++;
-                        checkAndFillSpace(index);
+                        mTempColumn++;
+                        checkAndFillSpace(grid, index);
                     }
                 }
                 break;
             case SIZE_BIG:
-                if (mCurrentGridColumn + 3 >= mColumnNum) { //row is not enough, move to next row
-                    mCurrentGridColumn = 0;
-                    mCurrentGridRow++;
-                    checkAndFillSpace(index);
+                if (mTempColumn + 3 >= mColumnNum) { //row is not enough, move to next row
+                    mTempColumn = 0;
+                    mTempRow++;
+                    checkAndFillSpace(grid, index);
                 } else {
-                    if (mGrid.get(mCurrentGridRow)[mCurrentGridColumn] == -1
-                            && mGrid.get(mCurrentGridRow)[mCurrentGridColumn + 1] == -1
-                            && mGrid.get(mCurrentGridRow)[mCurrentGridColumn + 2] == -1
-                            && mGrid.get(mCurrentGridRow)[mCurrentGridColumn + 3] == -1
-                            && mGrid.get(mCurrentGridRow + 1)[mCurrentGridColumn] == -1
-                            && mGrid.get(mCurrentGridRow + 1)[mCurrentGridColumn + 1] == -1
-                            && mGrid.get(mCurrentGridRow + 1)[mCurrentGridColumn + 2] == -1
-                            && mGrid.get(mCurrentGridRow + 1)[mCurrentGridColumn + 3] == -1) {
-                        mGrid.get(mCurrentGridRow)[mCurrentGridColumn] = index;
-                        mGrid.get(mCurrentGridRow)[mCurrentGridColumn + 1] = index;
-                        mGrid.get(mCurrentGridRow)[mCurrentGridColumn + 2] = index;
-                        mGrid.get(mCurrentGridRow)[mCurrentGridColumn + 3] = index;
-                        mGrid.get(mCurrentGridRow + 1)[mCurrentGridColumn] = index;
-                        mGrid.get(mCurrentGridRow + 1)[mCurrentGridColumn + 1] = index;
-                        mGrid.get(mCurrentGridRow + 1)[mCurrentGridColumn + 2] = index;
-                        mGrid.get(mCurrentGridRow + 1)[mCurrentGridColumn + 3] = index;
+                    if (grid.get(mTempRow)[mTempColumn] == -1
+                            && grid.get(mTempRow)[mTempColumn + 1] == -1
+                            && grid.get(mTempRow)[mTempColumn + 2] == -1
+                            && grid.get(mTempRow)[mTempColumn + 3] == -1
+                            && grid.get(mTempRow + 1)[mTempColumn] == -1
+                            && grid.get(mTempRow + 1)[mTempColumn + 1] == -1
+                            && grid.get(mTempRow + 1)[mTempColumn + 2] == -1
+                            && grid.get(mTempRow + 1)[mTempColumn + 3] == -1) {
+                        grid.get(mTempRow)[mTempColumn] = index;
+                        grid.get(mTempRow)[mTempColumn + 1] = index;
+                        grid.get(mTempRow)[mTempColumn + 2] = index;
+                        grid.get(mTempRow)[mTempColumn + 3] = index;
+                        grid.get(mTempRow + 1)[mTempColumn] = index;
+                        grid.get(mTempRow + 1)[mTempColumn + 1] = index;
+                        grid.get(mTempRow + 1)[mTempColumn + 2] = index;
+                        grid.get(mTempRow + 1)[mTempColumn + 3] = index;
                     } else {    //space has been taken, move right;
-                        mCurrentGridColumn++;
-                        checkAndFillSpace(index);
+                        mTempColumn++;
+                        checkAndFillSpace(grid, index);
                     }
                 }
                 break;
         }
     }
 
-    private void newEmptyGrid() {
-        mGrid = new ArrayList<>();
-        appendGridRows();
-    }
-
-    private void appendGridRows() {
+    private static void appendGridRows(List<Integer[]> grid, int columnSize) {
         for (int i = 0; i < 50; i++) {
-            Integer[] row = new Integer[mColumnNum];
+            Integer[] row = new Integer[columnSize];
             for (int j = 0; j < row.length; j++) {
                 row[j] = -1;
             }
-            mGrid.add(row);
+            grid.add(row);
         }
     }
 
@@ -847,4 +900,5 @@ public class MetroView extends ViewGroup {
             }
         }
     }
+
 }
