@@ -1,9 +1,11 @@
-package me.yugy.metrolauncher;
+package me.yugy.metrolauncher.adapter;
 
 import android.support.annotation.Nullable;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+
+import me.yugy.metrolauncher.widget.MetroView;
 
 public abstract class MetroAdapter {
 

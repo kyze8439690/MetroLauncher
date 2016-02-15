@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<me.yugy.metrolauncher.MetroView
+<android.support.v4.view.ViewPager
     xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/metro_view"
+    android:id="@+id/pager"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:padding="4dp"
-    app:mv_dividerSize="4dp"
-    />
+    android:layout_height="match_parent"/>

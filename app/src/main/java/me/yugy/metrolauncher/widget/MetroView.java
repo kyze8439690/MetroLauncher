@@ -1,4 +1,4 @@
-package me.yugy.metrolauncher;
+package me.yugy.metrolauncher.widget;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
@@ -18,7 +18,6 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.animation.AccelerateInterpolator;
-import android.view.animation.DecelerateInterpolator;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -28,10 +27,12 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Random;
-import java.util.Set;
 
 import me.yugy.app.common.compat.ViewCompat;
 import me.yugy.app.common.utils.ViewGroupUtils;
+import me.yugy.metrolauncher.BuildConfig;
+import me.yugy.metrolauncher.R;
+import me.yugy.metrolauncher.adapter.MetroAdapter;
 
 public class MetroView extends ViewGroup {
 
@@ -391,8 +392,6 @@ public class MetroView extends ViewGroup {
         }
 
         fillGap(down);
-
-        log("result: " + result + ", deltaY: " + deltaY + ", mFirstRowTop: " + mFirstRowTop + ", viewCount: " + getChildCount());
 
         return result;
     }
