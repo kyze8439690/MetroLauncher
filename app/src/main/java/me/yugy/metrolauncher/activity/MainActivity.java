@@ -1,5 +1,7 @@
 package me.yugy.metrolauncher.activity;
 
+import android.content.Intent;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentManager;
@@ -9,9 +11,10 @@ import android.support.v4.view.ViewPager;
 import butterknife.ButterKnife;
 import butterknife.InjectView;
 import me.yugy.app.common.core.BaseActivity;
+import me.yugy.app.common.utils.UIUtils;
+import me.yugy.metrolauncher.R;
 import me.yugy.metrolauncher.fragment.AppListFragment;
 import me.yugy.metrolauncher.fragment.MainFragment;
-import me.yugy.metrolauncher.R;
 
 public class MainActivity extends BaseActivity {
 
@@ -22,6 +25,8 @@ public class MainActivity extends BaseActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         ButterKnife.inject(this);
+        UIUtils.makeStatusBarTransparent(getWindow());
+        UIUtils.setStatusBarColor(getWindow(), Color.TRANSPARENT);
         mPager.setAdapter(new MainPagerAdapter(getSupportFragmentManager()));
     }
 
@@ -43,6 +48,16 @@ public class MainActivity extends BaseActivity {
         @Override
         public int getCount() {
             return 2;
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (mPager != null) {
+            if (mPager.getCurrentItem() == 1) {
+                mPager.setCurrentItem(0);
+            }
         }
     }
 

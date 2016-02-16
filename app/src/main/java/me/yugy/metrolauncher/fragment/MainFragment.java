@@ -10,7 +10,10 @@ import android.widget.Toast;
 
 import butterknife.InjectView;
 import me.yugy.app.common.core.BaseFragment;
+import me.yugy.app.common.utils.UIUtils;
+import me.yugy.app.common.utils.VersionUtils;
 import me.yugy.metrolauncher.adapter.MetroAdapter;
+import me.yugy.metrolauncher.view.TiltEffectAttacher;
 import me.yugy.metrolauncher.widget.MetroView;
 import me.yugy.metrolauncher.R;
 
@@ -31,6 +34,13 @@ public class MainFragment extends BaseFragment {
     @Override
     public void onViewCreated(View view, Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
+        if (VersionUtils.lollipopOrLater()) {
+            mMetroView.setPadding(
+                    mMetroView.getPaddingLeft(),
+                    mMetroView.getPaddingTop() + UIUtils.getStatusBarHeight(getActivity()),
+                    mMetroView.getPaddingRight(),
+                    mMetroView.getPaddingBottom());
+        }
         mMetroView.setAdapter(new MetroAdapter() {
             @Override
             public int getSize(int position) {
@@ -94,6 +104,7 @@ public class MainFragment extends BaseFragment {
                 public Holder(View view) {
                     text = (TextView) view.findViewById(R.id.text);
                     view.setTag(this);
+                    TiltEffectAttacher.attach(view);
                 }
             }
         });

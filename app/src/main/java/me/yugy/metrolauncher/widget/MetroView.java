@@ -76,7 +76,6 @@ public class MetroView extends ViewGroup {
     private VelocityTracker mVelocityTracker;
     private int mMinimumVelocity;
     private int mMaximumVelocity;
-    private float mVelocityScale = 1.0f;
     private FlingRunnable mFlingRunnable;
 
     private RecycleBin mRecycleBin;
@@ -146,13 +145,13 @@ public class MetroView extends ViewGroup {
         animateView.animate()
                 .rotationY(-45)
                 .translationX(-animateView.getLeft() - animateView.getWidth() - getWidth() / 2)
-//                .scaleX(1.1f).scaleY(1.1f)
                 .setDuration(300)
                 .setInterpolator(new AccelerateInterpolator())
                 .setListener(new AnimatorListenerAdapter() {
                     @Override
                     public void onAnimationStart(Animator animation) {
                         animateView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+                        animateView.clearAnimation();
                     }
 
                     @Override
@@ -245,7 +244,7 @@ public class MetroView extends ViewGroup {
                 velocityTracker.computeCurrentVelocity(1000, mMaximumVelocity);
                 final float yVelocity =
                         VelocityTrackerCompat.getYVelocity(velocityTracker, mActivePointerId);
-                final int initialVelocity = (int) (yVelocity * mVelocityScale);
+                final int initialVelocity = (int) yVelocity;
                 boolean flingVelocity = Math.abs(initialVelocity) > mMinimumVelocity;
                 if (flingVelocity) {
                     if (mFlingRunnable == null) {

@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.support.annotation.Nullable;
 import android.support.v4.content.AsyncTaskLoader;
 
 import java.util.ArrayList;
@@ -12,11 +13,14 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
+import me.yugy.metrolauncher.AppListModifyReceiver;
 import me.yugy.metrolauncher.model.AppInfo;
 
 public class AppListLoader extends AsyncTaskLoader<List<AppInfo>> {
 
     private PackageManager mPackageManager;
+    @Nullable private List<AppInfo> mApps;
+    @Nullable private AppListModifyReceiver mReceiver;
 
     public AppListLoader(Context context) {
         super(context);
@@ -28,37 +32,58 @@ public class AppListLoader extends AsyncTaskLoader<List<AppInfo>> {
         Intent filter = new Intent(Intent.ACTION_MAIN);
         filter.addCategory(Intent.CATEGORY_LAUNCHER);
         List<ResolveInfo> apps = mPackageManager.queryIntentActivities(filter, 0);
-        List<AppInfo> appList = new ArrayList<>();
+        if (mApps == null) {
+            mApps = new ArrayList<>();
+        }
         for (ResolveInfo info : apps) {
             ComponentName componentName = new ComponentName(
                     info.activityInfo.applicationInfo.packageName,
                     info.activityInfo.name);
             AppInfo appInfo = AppInfo.fromResolveInfo(mPackageManager, info, componentName);
-            appList.add(appInfo);
+            mApps.add(appInfo);
         }
-        Collections.sort(appList, new Comparator<AppInfo>() {
+        Collections.sort(mApps, new Comparator<AppInfo>() {
             @Override
             public int compare(AppInfo lhs, AppInfo rhs) {
                 return lhs.firstChar - rhs.firstChar;
             }
         });
-        return appList;
+        return mApps;
     }
 
     @Override
     public void deliverResult(List<AppInfo> data) {
         if (isReset()) {
-            data.clear();
+            onReleaseResources(data);
             return;
         }
+
+        List<AppInfo> oldApps = mApps;
+
+        mApps = data;
+
         if (isStarted()) {
             super.deliverResult(data);
+        }
+
+        if (oldApps != null) {
+            onReleaseResources(oldApps);
         }
     }
 
     @Override
     protected void onStartLoading() {
-        forceLoad();
+        if (mApps != null) {
+            deliverResult(mApps);
+        }
+
+        if (mReceiver == null) {
+            mReceiver = new AppListModifyReceiver(this);
+        }
+
+        if (takeContentChanged() || mApps == null) {
+            forceLoad();
+        }
     }
 
     @Override
@@ -68,12 +93,28 @@ public class AppListLoader extends AsyncTaskLoader<List<AppInfo>> {
 
     @Override
     public void onCanceled(List<AppInfo> data) {
+        super.onCanceled(data);
+        onReleaseResources(data);
+    }
+
+    private void onReleaseResources(List<AppInfo> data) {
         data.clear();
     }
 
     @Override
     protected void onReset() {
+        super.onReset();
         onStopLoading();
+
+        if (mApps != null) {
+            onReleaseResources(mApps);
+            mApps = null;
+        }
+
+        if (mReceiver != null) {
+            getContext().unregisterReceiver(mReceiver);
+            mReceiver = null;
+        }
     }
 
 

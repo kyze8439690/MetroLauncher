@@ -1,12 +1,15 @@
 package me.yugy.metrolauncher.adapter;
 
+import android.content.ActivityNotFoundException;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import butterknife.ButterKnife;
@@ -15,13 +18,22 @@ import me.yugy.app.common.view.BaseHolder;
 import me.yugy.app.common.view.OnViewClickListener;
 import me.yugy.metrolauncher.R;
 import me.yugy.metrolauncher.model.AppInfo;
+import me.yugy.metrolauncher.view.TiltEffectAttacher;
 
 public class AppListAdapter extends BaseAdapter {
 
     private List<AppInfo> mData;
 
-    public AppListAdapter(List<AppInfo> data) {
-        mData = data;
+    public AppListAdapter() {
+        mData = new ArrayList<>();
+    }
+
+    public void setData(List<AppInfo> data) {
+        mData.clear();
+        if (data != null) {
+            mData.addAll(data);
+        }
+        notifyDataSetChanged();
     }
 
     @Override
@@ -60,6 +72,7 @@ public class AppListAdapter extends BaseAdapter {
 
         public Holder(View view) {
             super(view);
+            TiltEffectAttacher.attach(rootView);
         }
 
         @Override
@@ -69,7 +82,11 @@ public class AppListAdapter extends BaseAdapter {
             rootView.setOnClickListener(new OnViewClickListener() {
                 @Override
                 protected void onViewClick(View view) {
-                    view.getContext().startActivity(appInfo.intent);
+                    try {
+                        view.getContext().startActivity(appInfo.intent);
+                    } catch (ActivityNotFoundException | SecurityException e) {
+                        Toast.makeText(view.getContext(), "Activity not found.", Toast.LENGTH_SHORT).show();
+                    }
                 }
             });
         }
