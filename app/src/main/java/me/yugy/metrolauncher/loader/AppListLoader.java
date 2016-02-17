@@ -92,13 +92,15 @@ public class AppListLoader extends AsyncTaskLoader<List<AppInfo>> {
     }
 
     @Override
-    public void onCanceled(List<AppInfo> data) {
+    public void onCanceled(@Nullable List<AppInfo> data) {
         super.onCanceled(data);
         onReleaseResources(data);
     }
 
     private void onReleaseResources(List<AppInfo> data) {
-        data.clear();
+        if (data != null) {
+            data.clear();
+        }
     }
 
     @Override
